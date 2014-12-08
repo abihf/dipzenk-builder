@@ -1,0 +1,16 @@
+proc/*
+dev/*
+tmp/*
+run/*
+sys/*
+boot/*
+tmp/*
+usr/share/doc
+usr/share/man
+lib/modules/3.2.0-48-generic/kernel/sound
+var/cache/*
+var/lib/apt
+var/lib/dpkg
+var/log/*
+run/*
+lost+found

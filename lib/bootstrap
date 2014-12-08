@@ -1,0 +1,36 @@
+
+## BASE
+# install via debootstrap
+# set hostname & hosts
+
+## PACKAGE
+# set apt source && update
+# disable install recommended /etc/apt/apt.d/90norec.conf
+#   APT::Install-Suggests "0";
+#   APT::Install-Recommends "0"; 
+# install package
+
+## USER
+# add user (adduser live)
+# copy user folder
+
+## LOGIN
+# autologin http://stackoverflow.com/questions/14152026/how-can-i-automatically-login-on-a-tty-and-execute-a-script
+# - install mingetty
+# - edit /etc/init/tty1.conf => exec /sbin/mingetty --autologin live --noissue tty1
+# reduce tty http://askubuntu.com/questions/27967/how-can-i-reduce-the-number-of-ttys
+# - edit /etc/default/console-setup => ACTIVE_CONSOLES="/dev/tty[1-2]"
+# - mv tty3.conf tty3.conf.bak
+
+## POLKIT
+# network manager polkit /etc/polkit-1/localauthority/50-local.d/org.freedesktop.NetworkManager.pkla 
+#   [nm-applet]
+#   Identity=unix-group:netdev
+#   Action=org.freedesktop.NetworkManager.*
+#   ResultAny=yes
+#   ResultInactive=yes
+#   ResultActive=yes
+# adduser live plugdev
+# adduser live users
+
+debootstrap()

@@ -1,0 +1,110 @@
+
+dlg() {
+  dialog --title "Dipzenk Builder" --clear "$@"
+}
+
+dlg_msg() {
+  dlg --msgbox "$1" 5 45
+}
+
+rootfs_mounted() {
+  mountpoint "${DIR_ROOTFS}"
+}
+
+_rootfs_mount() {
+  mount -o noatime "${ROOTFS_IMG}" "${DIR_ROOTFS}" &&
+  mount --bind /proc "${DIR_ROOTFS}/proc" &&
+  mount --bind /dev "${DIR_ROOTFS}/dev" &&
+  mount --bind /sys "${DIR_ROOTFS}/sys" &&
+  mount -t tmpfs -o mode=1777,nodev,nosuid  tmp "${DIR_ROOTFS}/tmp" &&
+  mount -t tmpfs -o nosuid,nodev,mode=0755 run "${DIR_ROOTFS}/run" 
+}
+
+_rootfs_unmount() {
+  umount "${DIR_ROOTFS}/proc" &&
+  umount "${DIR_ROOTFS}/dev" &&
+  umount "${DIR_ROOTFS}/sys" &&
+  umount "${DIR_ROOTFS}/tmp" &&
+  umount "${DIR_ROOTFS}/run" &&
+  umount "${DIR_ROOTFS}"
+}
+
+rootfs_mount() {
+  if rootfs_mounted ; then
+    return 0
+  else
+    _rootfs_mount
+  fi
+}
+
+rootfs_unmount() {
+  if rootfs_mounted ; then
+    _rootfs_unmount
+  else
+    return 0
+  fi
+}
+
+
+rootfs_toggle_mount() {
+  if rootfs_mounted ; then
+    _rootfs_unmount
+  else
+    _rootfs_mount
+  fi
+}
+
+rootfs_chroot() {
+  if rootfs_mount ; then
+    echo "#!/bin/sh" > "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+    echo "exit 101" >> "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+    chmod +x "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+    
+    mv "${DIR_ROOTFS}/sbin/initctl"  "${DIR_ROOTFS}/sbin/initctl.bak" #### BUG HERE
+    ln -sf /bin/true "${DIR_ROOTFS}/sbin/initctl"
+    
+    PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/java/jre/bin:/usr/bin/vendor_perl:/usr/bin/core_perl" \
+      chroot "${DIR_ROOTFS}" $@
+    rv=$?
+    
+    rm "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+    rm "${DIR_ROOTFS}/sbin/initctl" 
+    mv "${DIR_ROOTFS}/sbin/initctl.bak" "${DIR_ROOTFS}/sbin/initctl"
+    
+    return $rv
+  else
+    dlg --msgbox "unable to mount" 5 41
+  fi
+}
+
+rootfs_emulate() {
+  rootfs_unmount &&
+  qemu-system-x86_64 -kernel "vmlinuz" -initrd "initrd.img" -append "root=/dev/sda quiet splash rootfstype=ext2" \
+    -hda "${ROOTFS_IMG}" -enable-kvm -smp cores=2,threads=2 -m 1024 -no-reboot
+}
+
+
+run_xnest() {
+  Xnest $XNEST_ARGS $XNEST_DISPLAY &
+  sleep 1
+  clear
+  rootfs_chroot env DISPLAY=$XNEST_DISPLAY su - $XNEST_USER -c "${XNEST_INIT}"
+}
+
+build_squashfs() {
+  clear
+  rm "${SQUASHFS_OUT}"
+  echo mksquashfs "${DIR_ROOTFS}/" "${SQUASHFS_OUT}" -ef "${SQUASHFS_EXCLUDE}" -wildcards ${SQUASHFS_OPTS}
+  rootfs_mount &&
+  mksquashfs "${DIR_ROOTFS}" "${SQUASHFS_OUT}" -ef "${SQUASHFS_EXCLUDE}" -wildcards ${SQUASHFS_OPTS}
+  read line
+}
+
+init_add_module() {
+
+}
+
+build_initrd() {
+  cd "${DIR_INITRD}"
+  find . | cpio -H newc -o | lzma -z > "${INITRD_OUT}"
+}
