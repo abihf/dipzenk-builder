@@ -29,11 +29,12 @@ DIR_CD="${DIR_BUILD}/cd"
 CD_KERNEL="${DIR_CD}/vmlinuz"
 CD_INITRD="${DIR_CD}/initrd.lz"
 CD_OUT="${DISTRO_NAME}-${DISTRO_VERSION}.iso"
+CD_LABEL="${DISTRO_NAME}"
 
 #SQUASHFS_OPTS="-no-xattrs -comp xz -Xbcj x86,ia64"
 SQUASHFS_OPTS="-no-xattrs"
 SQUASHFS_EXCLUDE="${DIR_FILES}/squashfs.exclude"
-SQUASHFS_OUT="${DIR_CD}/system.sfs"
+SQUASHFS_OUT="${DIR_CD}/live/system.sfs"
 
 DIR_INITRD="${DIR_BUILD}/initramfs"
 INITRD_OUT="${DIR_CD}/initrd.lz"

@@ -1,4 +1,6 @@
 
+chroot_lock_file="${DIR_ROOTFS}/.chroot.lock"
+
 dlg() {
   dialog --title "Dipzenk Builder" --clear "$@"
 }
@@ -7,26 +9,28 @@ dlg_msg() {
   dlg --msgbox "$1" 5 45
 }
 
+err() {
+  echo $@ >& 2
+  return 1
+}
+
+mounted() {
+  mountpoint "$1" &> /dev/null
+}
 rootfs_mounted() {
-  mountpoint "${DIR_ROOTFS}"
+  mounted "${DIR_ROOTFS}"
 }
 
 _rootfs_mount() {
-  mount -o noatime "${ROOTFS_IMG}" "${DIR_ROOTFS}" &&
-  mount --bind /proc "${DIR_ROOTFS}/proc" &&
-  mount --bind /dev "${DIR_ROOTFS}/dev" &&
-  mount --bind /sys "${DIR_ROOTFS}/sys" &&
-  mount -t tmpfs -o mode=1777,nodev,nosuid  tmp "${DIR_ROOTFS}/tmp" &&
-  mount -t tmpfs -o nosuid,nodev,mode=0755 run "${DIR_ROOTFS}/run" 
+  echo -n "Mounting rootfs ..."
+  mount -o noatime "${ROOTFS_IMG}" "${DIR_ROOTFS}" && echo "Mounted" || err "Error"
 }
 
 _rootfs_unmount() {
-  umount "${DIR_ROOTFS}/proc" &&
-  umount "${DIR_ROOTFS}/dev" &&
-  umount "${DIR_ROOTFS}/sys" &&
-  umount "${DIR_ROOTFS}/tmp" &&
-  umount "${DIR_ROOTFS}/run" &&
-  umount "${DIR_ROOTFS}"
+  if chroot_clean; then
+    echo -n "Unmounting rootfs..."
+    umount "${DIR_ROOTFS}" && echo "Done" || err "Error"
+  fi
 }
 
 rootfs_mount() {
@@ -54,22 +58,77 @@ rootfs_toggle_mount() {
   fi
 }
 
+_mount_msg() {
+  echo -n "Mounting ($@) ... "
+  mount "$@" && echo "Done" || err "Error"
+}
+chroot_prepare() {
+  echo "# Preparing chroot"
+  _mount_msg -t proc none "${DIR_ROOTFS}/proc"
+  _mount_msg -t devtmpfs none "${DIR_ROOTFS}/dev"
+  # _mount_msg -t devpts none "${DIR_ROOTFS}/dev/pts"
+  _mount_msg -t sysfs none "${DIR_ROOTFS}/sys"
+  _mount_msg -t tmpfs -o mode=1777,nodev,nosuid  tmp "${DIR_ROOTFS}/tmp"
+  _mount_msg -t tmpfs -o nosuid,nodev,mode=0755 run "${DIR_ROOTFS}/run" 
+
+  echo "#!/bin/sh" > "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+  echo "exit 101" >> "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+  chmod +x "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+  
+  mv "${DIR_ROOTFS}/sbin/initctl"  "${DIR_ROOTFS}/sbin/initctl.bak" #### BUG HERE
+  ln -sf /bin/true "${DIR_ROOTFS}/sbin/initctl"
+}
+
+_umount_msg() {
+  echo -n "Unmounting $1 ..."
+  mounted "$1" && umount "$1" && echo "Done" || err "Error"
+}
+
+chroot_clean() {
+  if [ -e "${chroot_lock_file}" ]; then
+    count=`< "${chroot_lock_file}"`
+    if [ $count -gt 0 ]; then
+      dlg_msg "There are another ($count) chroot processes run"
+      return 1
+    else
+      echo "Cleaning chroot environment ..."
+      _umount_msg "${DIR_ROOTFS}/proc"
+      #umount "${DIR_ROOTFS}/dev/pts"
+      _umount_msg "${DIR_ROOTFS}/dev"
+      _umount_msg "${DIR_ROOTFS}/sys"
+      _umount_msg "${DIR_ROOTFS}/tmp"
+      _umount_msg "${DIR_ROOTFS}/run"
+      
+      rm "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
+      rm "${DIR_ROOTFS}/sbin/initctl" 
+      cp "${DIR_ROOTFS}/sbin/initctl.bak" "${DIR_ROOTFS}/sbin/initctl"
+      rm "${chroot_lock_file}"
+      echo done
+      return 0
+    fi
+  else
+    return 0
+  fi 
+}
+
 rootfs_chroot() {
   if rootfs_mount ; then
-    echo "#!/bin/sh" > "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
-    echo "exit 101" >> "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
-    chmod +x "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
-    
-    mv "${DIR_ROOTFS}/sbin/initctl"  "${DIR_ROOTFS}/sbin/initctl.bak" #### BUG HERE
-    ln -sf /bin/true "${DIR_ROOTFS}/sbin/initctl"
+    if [ -e "${chroot_lock_file}" ]; then
+      count=`< "${chroot_lock_file}"`
+      count=$(( $count + 1 ))
+    else
+      chroot_prepare
+      count=1
+    fi
+    echo $count > "${chroot_lock_file}"
     
     PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/java/jre/bin:/usr/bin/vendor_perl:/usr/bin/core_perl" \
-      chroot "${DIR_ROOTFS}" $@
+    LC_ALL=C LANG=C LANGUAGE=C chroot "${DIR_ROOTFS}" "$@"
     rv=$?
     
-    rm "${DIR_ROOTFS}/usr/sbin/policy-rc.d"
-    rm "${DIR_ROOTFS}/sbin/initctl" 
-    mv "${DIR_ROOTFS}/sbin/initctl.bak" "${DIR_ROOTFS}/sbin/initctl"
+    count=`< "${chroot_lock_file}"`
+    count=$(( $count - 1 ))
+    echo $count > "${chroot_lock_file}"
     
     return $rv
   else
@@ -78,33 +137,79 @@ rootfs_chroot() {
 }
 
 rootfs_emulate() {
-  rootfs_unmount &&
-  qemu-system-x86_64 -kernel "vmlinuz" -initrd "initrd.img" -append "root=/dev/sda quiet splash rootfstype=ext2" \
-    -hda "${ROOTFS_IMG}" -enable-kvm -smp cores=2,threads=2 -m 1024 -no-reboot
+  if rootfs_unmount; then
+    echo "Running qemu"
+    qemu-system-i386 -kernel "${EMUL_KERNEL}" -initrd "${EMUL_INITRD}" \
+      -append "root=/dev/sda rootfstype=btrfs" \
+      -hda "${ROOTFS_IMG}" -enable-kvm -smp cores=2,threads=2 -m 1024 -no-reboot
+  fi
 }
 
 
 run_xnest() {
   Xnest $XNEST_ARGS $XNEST_DISPLAY &
   sleep 1
-  clear
   rootfs_chroot env DISPLAY=$XNEST_DISPLAY su - $XNEST_USER -c "${XNEST_INIT}"
 }
 
 build_squashfs() {
-  clear
   rm "${SQUASHFS_OUT}"
   echo mksquashfs "${DIR_ROOTFS}/" "${SQUASHFS_OUT}" -ef "${SQUASHFS_EXCLUDE}" -wildcards ${SQUASHFS_OPTS}
-  rootfs_mount &&
+  rootfs_mount && chroot_clean &&
   mksquashfs "${DIR_ROOTFS}" "${SQUASHFS_OUT}" -ef "${SQUASHFS_EXCLUDE}" -wildcards ${SQUASHFS_OPTS}
+  echo -n "Press enter ..."
   read line
 }
 
-init_add_module() {
-
+prepare_initrd() {
+  echo "implement it"
+  return 0
 }
 
 build_initrd() {
-  cd "${DIR_INITRD}"
-  find . | cpio -H newc -o | lzma -z > "${INITRD_OUT}"
+  if rootfs_mount && prepare_initrd; then
+    read -a versions <<< `ls "${DIR_ROOTFS}/lib/modules/"`
+    txt=""
+    for i in "${!versions[@]}"; do
+      txt+=" $i ${versions[i]}"
+    done
+    exec 3>&1;
+    result=$(dlg --menu "Pilih versi" 16 41 10 $txt 2>&1 1>&3);
+    exitcode=$?;
+    exec 3>&-;
+    clear
+    if [ $exitcode -eq 0 ]; then
+      ver=${versions[result]}
+      
+      echo "generating initrd"
+      if rootfs_chroot mkinitramfs -d /dipzenk.build/initramfs/ -o \
+        /dipzenk.build/initrd.lz $ver; then
+        
+        echo -n "copying initrd ..."
+        cp "${DIR_ROOTFS}/dipzenk.build/initrd.lz" "${CD_INITRD}" && echo "Done" || err "Error"
+      else
+        err "error generating init rd"
+      fi
+    else
+      err "Canceled"
+    fi
+  fi
+}
+
+prepare_livecd() {
+  echo "implement it"
+}
+
+build_livecd() {
+  mkisofs -o "${CD_OUT}" \
+   -b isolinux/isolinux.bin -c isolinux/boot.cat \
+   -no-emul-boot -boot-load-size 4 -boot-info-table \
+   -R -J -d -V $CD_LABEL -A livecd "${DIR_CD}"
+   
+  isohybrid "${CD_OUT}"
+}
+
+livecd_emulate() {
+    qemu-system-i386 -cdrom "${CD_OUT}" -enable-kvm -smp cores=2,threads=2 -m 1024 -no-reboot
+
 }

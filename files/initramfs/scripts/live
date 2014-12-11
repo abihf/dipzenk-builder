@@ -1,0 +1,63 @@
+# Local filesystem mounting			-*- shell-script -*-
+
+mountroot() {
+	modprobe loop
+	modprobe squashfs
+	modprobe aufs
+	
+	cdrom=/cdrom
+	ramfs=/ramfs
+	rodir=/ro
+	rwdir=/rw
+	
+	sfsfile=$cdrom/live/system.sfs
+	
+	mkdir $cdrom   # for mounting cdrom
+	mkdir $ramfs   # for mounting system (tmpfs)
+	mkdir $rodir      # for mounting system.sfs
+	mkdir $rwdir      # temporary dir (tmpfs)
+	
+	# search 
+  rootdev=null
+  try=10
+  while [ $try -gt 0 -a $rootdev = null ]; do
+    for dev in /dev/sd* /dev/sr*; do
+      [ "$quiet" != "y" ] && echo -n "mouting $dev ... "
+      if `mount -o ro,sync $dev $cdrom 2> /dev/null`; then
+        sleep .5 # wait for device ready
+        if [ -e $sfsfile ]; then
+          [ "$quiet" != "y" ] && echo "live system found"
+          rootdev=$dev
+          break
+        else
+          [ "$quiet" != "y" ] && echo "live system NOT found"
+          umount $cdrom
+        fi   
+      fi
+    done
+    try=$(( $try - 1 ))
+    sleep 1
+  done
+	
+	if [ x$rootdev = xnull ]; then
+	  				panic "
+Could not find live partition.
+This could also happen if you burn this disk other than cdrom sdass
+"
+	fi
+	
+	[ "$quiet" != "y" ] && log_begin_msg "Copying live system to RAM"
+	size=`du -s $cdrom/live | cut -f1`k
+	mount -t tmpfs -o size=$size tmpfs $ramfs
+	cp $cdrom/live/* $ramfs/
+	sync; sync; sync
+	umount $cdrom
+	eject $rootdev 2> /dev/null
+	[ "$quiet" != "y" ] && log_end_msg
+	
+	[ "$quiet" != "y" ] && echo "Mounting rootfs"
+	mount /ramfs/system.sfs $rodir
+	mount -t tmpfs tmpfs $rwdir	
+	mount -t aufs -o br=$rwdir=rw:$rodir=ro,noatime,nodiratime aufs ${rootmnt}
+}
+

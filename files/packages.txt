@@ -1,0 +1,20 @@
+# kernel & firmware
+linux-image-generic linux-firmware-nonfree
+firmware-b43-installer firmware-b43legacy-installer
+
+# recomended for x11 system
+lxpolkit policykit-desktop-privileges consolekit libpam-ck-connector
+
+# power manager
+acpid laptop-mode-tools
+
+# display server
+xserver-xorg libgl1-mesa-dri xinit
+
+# environment
+openbox tint2 xfce4-notifyd lxterminal
+human-icon-theme fonts-dejavu gtk2-engines-murrine dmz-cursor-theme
+
+# network
+network-manager network-manager-gnome modemmanager
+usb-modeswitch usb-modeswitch mobile-broadband-provider-info 

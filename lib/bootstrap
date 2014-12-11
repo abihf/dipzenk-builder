@@ -1,14 +1,21 @@
 
 ## BASE
 # install via debootstrap
-# set hostname & hosts
+# set hostname, hosts, locale, timezone
 
 ## PACKAGE
 # set apt source && update
 # disable install recommended /etc/apt/apt.d/90norec.conf
 #   APT::Install-Suggests "0";
 #   APT::Install-Recommends "0"; 
+
+    Acquire::Languages "none";
 # install package
+
+
+## FIRMWARE
+# ati radeon => http://people.freedesktop.org/~agd5f/radeon_ucode/
+# broadcom b43-fwcutter => https://aur.archlinux.org/packages/b43-firmware/
 
 ## USER
 # add user (adduser live)
@@ -33,4 +40,10 @@
 # adduser live plugdev
 # adduser live users
 
-debootstrap()
+main() {
+  
+}
+
+debootstrap() {
+  echo i
+}
